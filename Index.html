@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>家庭在庫管理・音声入力</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #f6f6f6;
+      color: #222;
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Noto Sans JP",
+        sans-serif;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 22px;
+      text-align: center;
+      margin: 10px 0 25px;
+    }
+
+    .mic-area {
+      text-align: center;
+      margin: 25px 0;
+    }
+
+    #micButton {
+      width: 120px;
+      height: 120px;
+      border: none;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 4px 18px rgba(0,0,0,.12);
+      font-size: 52px;
+      cursor: pointer;
+    }
+
+    #micButton:active {
+      transform: scale(.96);
+    }
+
+    #micButton.recording {
+      animation: pulse 1.2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+
+    #status {
+      text-align: center;
+      font-size: 17px;
+      min-height: 28px;
+      margin: 15px 0;
+      white-space: pre-wrap;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+    }
+
+    .label {
+      font-size: 13px;
+      color: #777;
+      margin-bottom: 8px;
+    }
+
+    #recognized,
+    #result,
+    #confirmationMessage {
+      font-size: 18px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    #confirmation {
+      display: none;
+    }
+
+    .candidate {
+      width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 10px;
+      background: white;
+      cursor: pointer;
+      text-align: left;
+      font-size: 16px;
+    }
+
+    .candidate:active {
+      background: #f0f0f0;
+    }
+
+    .candidate-name {
+      font-weight: bold;
+      font-size: 17px;
+    }
+
+    .candidate-location {
+      margin-top: 6px;
+      font-size: 15px;
+      color: #555;
+    }
+
+    .candidate-id {
+      margin-top: 5px;
+      font-size: 12px;
+      color: #999;
+    }
+
+    .cancel-button,
+    .diagnostic-button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 15px;
+      border: none;
+      border-radius: 10px;
+      background: #eee;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .diagnostic-button {
+      margin-top: 0;
+    }
+
+    #diagnosticDetails {
+      margin-top: 12px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      font-size: 14px;
+      color: #444;
+    }
+
+    .small {
+      color: #777;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h1>🏠 家庭在庫管理・期限管理アシスタント</h1>
+
+  <div class="card">
+    <div class="label">接続設定</div>
+
+    <!--
+      ここに、デプロイしたApps Script WebアプリURLを設定してください。
+      例:
+      https://script.google.com/macros/s/XXXXXXXX/exec
+    -->
+    <input
+      id="gasUrl"
+      type="url"
+      placeholder="Apps Script WebアプリURL"
+      style="
+        width:100%;
+        padding:12px;
+        border:1px solid #ddd;
+        border-radius:10px;
+        font-size:15px;
+      "
+    >
+
+    <div class="small" style="margin-top:8px;">
+      初回だけ入力してください。この端末のブラウザに保存できます。
+    </div>
+
+    <button
+      class="diagnostic-button"
+      type="button"
+      onclick="saveGasUrl()"
+    >
+      💾 接続先を保存
+    </button>
+  </div>
+
+
+  <div class="mic-area">
+    <button
+      id="micButton"
+      onclick="startVoice()"
+    >
+      🎤
+    </button>
+  </div>
+
+
+  <div id="status">
+    ボタンを押して話してください
+  </div>
+
+
+  <div
+    class="card"
+    id="recognizedCard"
+    style="display:none;"
+  >
+    <div class="label">認識した内容</div>
+    <div id="recognized"></div>
+  </div>
+
+
+  <div
+    class="card"
+    id="resultCard"
+    style="display:none;"
+  >
+    <div class="label">結果</div>
+    <div id="result"></div>
+  </div>
+
+
+  <div
+    class="card"
+    id="confirmation"
+  >
+    <div class="label">対象を選択してください</div>
+
+    <div id="confirmationMessage"></div>
+
+    <div id="candidates"></div>
+
+    <button
+      class="cancel-button"
+      onclick="cancelConfirmation()"
+    >
+      キャンセル
+    </button>
+  </div>
+
+
+  <div class="card">
+    <div class="label">マイク診断</div>
+
+    <button
+      id="diagnosticButton"
+      class="diagnostic-button"
+      onclick="diagnoseMicrophone()"
+    >
+      🔎 マイクを診断する
+    </button>
+
+    <div
+      id="diagnosticDetails"
+      style="display:none;"
+    ></div>
+  </div>
+
+</div>
+
+
+<script>
+
+let pendingCommand = null;
+
+
+/**
+ * 保存済みのApps Script URLを読み込む
+ */
+(function loadSavedGasUrl() {
+
+  const url =
+    localStorage.getItem(
+      'voice_app_gas_url'
+    );
+
+  if (url) {
+
+    document.getElementById(
+      'gasUrl'
+    ).value = url;
+
+  }
+
+})();
+
+
+function saveGasUrl() {
+
+  const url =
+    document.getElementById(
+      'gasUrl'
+    ).value.trim();
+
+  if (!url) {
+
+    showError(
+      'Apps Script WebアプリURLを入力してください。'
+    );
+
+    return;
+  }
+
+  try {
+
+    new URL(url);
+
+  } catch (error) {
+
+    showError(
+      'URLの形式が正しくありません。'
+    );
+
+    return;
+  }
+
+  localStorage.setItem(
+    'voice_app_gas_url',
+    url
+  );
+
+  showResult(
+    'Apps Scriptの接続先を保存しました。'
+  );
+
+}
+
+
+/**
+ * Apps Script WebアプリURL
+ */
+function getGasUrl() {
+
+  const url =
+    document.getElementById(
+      'gasUrl'
+    ).value.trim();
+
+  if (!url) {
+
+    throw new Error(
+      'Apps Script WebアプリURLを設定してください。'
+    );
+
+  }
+
+  return url;
+
+}
+
+
+/**
+ * JSONPでApps Script APIを呼び出す
+ *
+ * 外部ページからApps Scriptへ直接fetchすると
+ * CORSの影響を受けるため、JSONPを使用します。
+ */
+function callGasApi(params) {
+
+  return new Promise(
+    function(resolve, reject) {
+
+      const callbackName =
+        '__voiceAppCallback_' +
+        Date.now() +
+        '_' +
+        Math.random()
+          .toString(36)
+          .slice(2);
+
+      const script =
+        document.createElement('script');
+
+      let finished = false;
+
+      function cleanup() {
+
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+
+        try {
+          delete window[callbackName];
+        } catch (error) {
+          window[callbackName] = undefined;
+        }
+
+      }
+
+      function finishSuccess(data) {
+
+        if (finished) {
+          return;
+        }
+
+        finished = true;
+
+        cleanup();
+
+        resolve(data);
+
+      }
+
+      function finishError(error) {
+
+        if (finished) {
+          return;
+        }
+
+        finished = true;
+
+        cleanup();
+
+        reject(error);
+
+      }
+
+      window[callbackName] =
+        function(data) {
+
+          finishSuccess(data);
+
+        };
+
+      script.onerror =
+        function() {
+
+          finishError(
+            new Error(
+              'Apps Scriptへの接続に失敗しました。'
+            )
+          );
+
+        };
+
+      const query =
+        Object.assign(
+          {},
+          params,
+          {
+            callback: callbackName
+          }
+        );
+
+      const queryString =
+        Object.keys(query)
+          .map(
+            function(key) {
+
+              return (
+                encodeURIComponent(key) +
+                '=' +
+                encodeURIComponent(
+                  String(query[key])
+                )
+              );
+
+            }
+          )
+          .join('&');
+
+      script.src =
+        getGasUrl() +
+        (
+          getGasUrl().includes('?')
+            ? '&'
+            : '?'
+        ) +
+        queryString;
+
+      document.head.appendChild(
+        script
+      );
+
+      // 30秒でタイムアウト
+      setTimeout(
+        function() {
+
+          finishError(
+            new Error(
+              'Apps Scriptからの応答がタイムアウトしました。'
+            )
+          );
+
+        },
+        30000
+      );
+
+    }
+  );
+
+}
+
+
+/**
+ * 音声認識
+ */
+function startVoice() {
+
+  const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+
+    showError(
+      'このブラウザでは音声認識を利用できません。'
+    );
+
+    return;
+  }
+
+  const recognition =
+    new SpeechRecognition();
+
+  recognition.lang =
+    'ja-JP';
+
+  recognition.continuous =
+    false;
+
+  recognition.interimResults =
+    false;
+
+  recognition.maxAlternatives =
+    1;
+
+  const button =
+    document.getElementById(
+      'micButton'
+    );
+
+  button.classList.add(
+    'recording'
+  );
+
+  document.getElementById(
+    'status'
+  ).textContent =
+    '🎤 聞いています…';
+
+  hideResult();
+  hideConfirmation();
+
+  recognition.onstart =
+    function() {
+
+      document.getElementById(
+        'status'
+      ).textContent =
+        '🎤 聞いています…話してください';
+
+    };
+
+  recognition.onresult =
+    function(event) {
+
+      const text =
+        event.results[0][0].transcript;
+
+      document.getElementById(
+        'recognized'
+      ).textContent =
+        '「' + text + '」';
+
+      document.getElementById(
+        'recognizedCard'
+      ).style.display =
+        'block';
+
+      document.getElementById(
+        'status'
+      ).textContent =
+        'Geminiが処理しています…';
+
+      processVoiceTextExternal(
+        text
+      );
+
+    };
+
+  recognition.onerror =
+    function(event) {
+
+      button.classList.remove(
+        'recording'
+      );
+
+      showSpeechRecognitionError(
+        event.error
+      );
+
+    };
+
+  recognition.onend =
+    function() {
+
+      button.classList.remove(
+        'recording'
+      );
+
+    };
+
+  try {
+
+    recognition.start();
+
+  } catch (error) {
+
+    button.classList.remove(
+      'recording'
+    );
+
+    showError(
+      '音声認識を開始できませんでした。\n' +
+      'エラー: ' +
+      (
+        error.message ||
+        error.name
+      )
+    );
+
+  }
+
+}
+
+
+/**
+ * 音声テキストをApps Scriptへ送る
+ */
+async function processVoiceTextExternal(
+  text
+) {
+
+  try {
+
+    const response =
+      await callGasApi({
+
+        voice_api:
+          'process',
+
+        text:
+          text
+
+      });
+
+    handleApiResult(
+      response
+    );
+
+  } catch (error) {
+
+    showError(
+      error.message ||
+      String(error)
+    );
+
+  }
+
+}
+
+
+/**
+ * Apps Scriptからの結果を画面へ反映
+ */
+function handleApiResult(
+  response
+) {
+
+  if (!response) {
+
+    showError(
+      'Apps Scriptから空の応答が返りました。'
+    );
+
+    return;
+  }
+
+
+  if (
+    response.success &&
+    response.type === 'executed'
+  ) {
+
+    showResult(
+      createResultMessage(
+        response
+      )
+    );
+
+    return;
+
+  }
+
+
+  if (
+    response.type === 'message'
+  ) {
+
+    showResult(
+      response.message ||
+      ''
+    );
+
+    return;
+
+  }
+
+
+  if (
+    response.type === 'confirmation'
+  ) {
+
+    showConfirmation(
+      response
+    );
+
+    return;
+
+  }
+
+
+  if (
+    response.type === 'not_found'
+  ) {
+
+    showError(
+      response.message ||
+      '商品が見つかりませんでした。'
+    );
+
+    return;
+
+  }
+
+
+  showError(
+    response.message ||
+    '処理に失敗しました。'
+  );
+
+}
+
+
+/**
+ * 候補を表示
+ */
+function showConfirmation(
+  response
+) {
+
+  pendingCommand = {
+
+    action:
+      response.action,
+
+    arguments:
+      response.arguments,
+
+    candidates:
+      response.candidates
+
+  };
+
+
+  document.getElementById(
+    'confirmation'
+  ).style.display =
+    'block';
+
+  document.getElementById(
+    'confirmationMessage'
+  ).textContent =
+    response.message ||
+    '対象を選択してください。';
+
+
+  const container =
+    document.getElementById(
+      'candidates'
+    );
+
+  container.innerHTML =
+    '';
+
+
+  response.candidates.forEach(
+    function(candidate) {
+
+      const button =
+        document.createElement(
+          'button'
+        );
+
+      button.type =
+        'button';
+
+      button.className =
+        'candidate';
+
+      const name =
+        document.createElement(
+          'div'
+        );
+
+      name.className =
+        'candidate-name';
+
+      name.textContent =
+        candidate.product_name ||
+        '';
+
+      const location =
+        document.createElement(
+          'div'
+        );
+
+      location.className =
+        'candidate-location';
+
+      location.textContent =
+        (
+          candidate.location ||
+          ''
+        ) +
+        (
+          candidate.detail_location
+            ? ' / ' +
+              candidate.detail_location
+            : ''
+        );
+
+      const id =
+        document.createElement(
+          'div'
+        );
+
+      id.className =
+        'candidate-id';
+
+      id.textContent =
+        candidate.management_id
+          ? '管理番号: ' +
+            candidate.management_id
+          : '行番号: ' +
+            candidate.row;
+
+      button.appendChild(
+        name
+      );
+
+      button.appendChild(
+        location
+      );
+
+      button.appendChild(
+        id
+      );
+
+      button.onclick =
+        function() {
+
+          executeCandidate(
+            candidate
+          );
+
+        };
+
+      container.appendChild(
+        button
+      );
+
+    }
+  );
+
+
+  document.getElementById(
+    'status'
+  ).textContent =
+    '対象を選択してください。';
+
+}
+
+
+/**
+ * 候補を実行
+ */
+async function executeCandidate(
+  candidate
+) {
+
+  if (!pendingCommand) {
+
+    showError(
+      '確認待ちの操作がありません。'
+    );
+
+    return;
+
+  }
+
+
+  document.getElementById(
+    'status'
+  ).textContent =
+    '処理しています…';
+
+
+  try {
+
+    const response =
+      await callGasApi({
+
+        voice_api:
+          'execute',
+
+        action:
+          pendingCommand.action,
+
+        args:
+          JSON.stringify(
+            pendingCommand.arguments ||
+            {}
+          ),
+
+        row:
+          candidate.row
+
+      });
+
+
+    pendingCommand =
+      null;
+
+    hideConfirmation();
+
+    handleApiResult(
+      response
+    );
+
+  } catch (error) {
+
+    showError(
+      error.message ||
+      String(error)
+    );
+
+  }
+
+}
+
+
+/**
+ * 確認キャンセル
+ */
+function cancelConfirmation() {
+
+  pendingCommand =
+    null;
+
+  hideConfirmation();
+
+  document.getElementById(
+    'status'
+  ).textContent =
+    'キャンセルしました。';
+
+}
+
+
+/**
+ * 結果メッセージ
+ */
+function createResultMessage(
+  response
+) {
+
+  const data =
+    response.result ||
+    {};
+
+
+  switch (
+    response.action
+  ) {
+
+    case 'inventory_set':
+
+      return (
+        data.product_name +
+        'の在庫を' +
+        data.quantity +
+        data.unit +
+        'にしました。'
+      );
+
+
+    case 'inventory_add':
+
+      return (
+        data.product_name +
+        'の在庫を' +
+        data.quantity +
+        data.unit +
+        'にしました。'
+      );
+
+
+    case 'inventory_get':
+
+      return (
+        data.product_name +
+        'の在庫は' +
+        data.quantity +
+        data.unit +
+        'です。'
+      );
+
+
+    case 'replacement_date_set':
+
+      return (
+        data.product_name +
+        'の交換日を' +
+        data.replacement_date +
+        'にしました。'
+      );
+
+
+    case 'replacement_date_get':
+
+      if (
+        !data.replacement_date
+      ) {
+
+        return (
+          data.product_name +
+          'の交換日は登録されていません。'
+        );
+
+      }
+
+      return (
+        data.product_name +
+        'の交換日は' +
+        data.replacement_date +
+        'です。'
+      );
+
+
+    case 'inventory_low':
+
+      if (
+        !Array.isArray(data) ||
+        data.length === 0
+      ) {
+
+        return (
+          '在庫が少ない商品はありません。'
+        );
+
+      }
+
+      return (
+        '在庫が少ない商品は' +
+        data.length +
+        '件あります。\n\n' +
+        data
+          .map(
+            function(item) {
+
+              let location =
+                item.location ||
+                '';
+
+              if (
+                item.detail_location
+              ) {
+
+                location +=
+                  ' ' +
+                  item.detail_location;
+
+              }
+
+              return (
+                '・' +
+                item.product_name +
+                '：' +
+                item.quantity +
+                item.unit +
+                '（' +
+                location +
+                '）'
+              );
+
+            }
+          )
+          .join('\n')
+      );
+
+
+    default:
+
+      return (
+        '処理が完了しました。'
+      );
+
+  }
+
+}
+
+
+/**
+ * マイク診断
+ *
+ * Apps Scriptではなく外部ページなので、
+ * ここでgetUserMediaを確認できます。
+ */
+async function diagnoseMicrophone() {
+
+  const details =
+    document.getElementById(
+      'diagnosticDetails'
+    );
+
+  const button =
+    document.getElementById(
+      'diagnosticButton'
+    );
+
+  details.style.display =
+    'block';
+
+  details.textContent =
+    '診断しています…';
+
+  button.disabled =
+    true;
+
+  const lines = [];
+
+  try {
+
+    lines.push(
+      '【1. ページの安全性】'
+    );
+
+    lines.push(
+      'isSecureContext: ' +
+      window.isSecureContext
+    );
+
+
+    if (
+      !window.isSecureContext
+    ) {
+
+      lines.push(
+        '❌ HTTPSではありません。'
+      );
+
+      details.textContent =
+        lines.join('\n');
+
+      return;
+
+    }
+
+    lines.push(
+      '✅ HTTPS / セキュアコンテキストはOK'
+    );
+
+
+    lines.push(
+      '\n【2. マイクAPI】'
+    );
+
+
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+
+      lines.push(
+        '❌ getUserMedia() が利用できません。'
+      );
+
+      details.textContent =
+        lines.join('\n');
+
+      return;
+
+    }
+
+    lines.push(
+      '✅ getUserMedia() は利用可能'
+    );
+
+
+    lines.push(
+      '\n【3. マイクへのアクセス】'
+    );
+
+
+    let stream = null;
+
+    try {
+
+      stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: true
+        });
+
+
+      lines.push(
+        '✅ マイクへのアクセスに成功しました。'
+      );
+
+
+      const tracks =
+        stream.getAudioTracks();
+
+
+      lines.push(
+        '検出したマイク: ' +
+        tracks.length +
+        '件'
+      );
+
+
+      tracks.forEach(
+        function(track, index) {
+
+          lines.push(
+            '  マイク' +
+            (index + 1) +
+            ': ' +
+            (
+              track.label ||
+              '名称不明'
+            )
+          );
+
+        }
+      );
+
+
+    } catch (error) {
+
+      lines.push(
+        '❌ マイクへのアクセスに失敗しました。'
+      );
+
+      lines.push(
+        'エラー名: ' +
+        error.name
+      );
+
+      lines.push(
+        '内容: ' +
+        (
+          error.message ||
+          '詳細不明'
+        )
+      );
+
+      details.textContent =
+        lines.join('\n');
+
+      return;
+
+
+    } finally {
+
+      if (stream) {
+
+        stream
+          .getTracks()
+          .forEach(
+            function(track) {
+              track.stop();
+            }
+          );
+
+      }
+
+    }
+
+
+    lines.push(
+      '\n【4. SpeechRecognition】'
+    );
+
+
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+
+    if (!SpeechRecognition) {
+
+      lines.push(
+        '❌ SpeechRecognition APIがありません。'
+      );
+
+      details.textContent =
+        lines.join('\n');
+
+      return;
+
+    }
+
+
+    lines.push(
+      '✅ SpeechRecognition APIを検出しました。'
+    );
+
+
+    details.textContent =
+      lines.join('\n');
+
+
+  } finally {
+
+    button.disabled =
+      false;
+
+  }
+
+}
+
+
+/**
+ * SpeechRecognitionエラー
+ */
+function showSpeechRecognitionError(
+  errorCode
+) {
+
+  let message =
+    '音声認識エラー: ' +
+    errorCode;
+
+
+  switch (
+    errorCode
+  ) {
+
+    case 'not-allowed':
+
+      message +=
+        '\n\nマイクの使用が拒否されています。';
+
+      message +=
+        '\nこのページのサイト権限とAndroidのマイク権限を確認してください。';
+
+      break;
+
+
+    case 'audio-capture':
+
+      message +=
+        '\n\nマイクを取得できません。';
+
+      break;
+
+
+    case 'no-speech':
+
+      message +=
+        '\n\n音声が検出されませんでした。';
+
+      break;
+
+
+    case 'network':
+
+      message +=
+        '\n\n音声認識サービスとの通信に失敗しました。';
+
+      break;
+
+
+    case 'service-not-allowed':
+
+      message +=
+        '\n\n音声認識サービスが許可されていません。';
+
+      break;
+
+
+    default:
+
+      message +=
+        '\n\n「マイク診断」を実行してください。';
+
+  }
+
+
+  showError(
+    message
+  );
+
+}
+
+
+function showResult(
+  message
+) {
+
+  document.getElementById(
+    'resultCard'
+  ).style.display =
+    'block';
+
+  document.getElementById(
+    'result'
+  ).textContent =
+    message;
+
+}
+
+
+function showError(
+  message
+) {
+
+  document.getElementById(
+    'status'
+  ).textContent =
+    '確認してください';
+
+  document.getElementById(
+    'resultCard'
+  ).style.display =
+    'block';
+
+  document.getElementById(
+    'result'
+  ).textContent =
+    message;
+
+}
+
+
+function hideResult() {
+
+  document.getElementById(
+    'resultCard'
+  ).style.display =
+    'none';
+
+}
+
+
+function hideConfirmation() {
+
+  document.getElementById(
+    'confirmation'
+  ).style.display =
+    'none';
+
+}
+
+</script>
+
+</body>
+</html>
